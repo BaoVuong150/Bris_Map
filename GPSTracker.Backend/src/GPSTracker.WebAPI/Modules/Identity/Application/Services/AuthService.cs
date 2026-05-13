@@ -43,13 +43,13 @@ public class AuthService
         return (true, string.Empty);
     }
 
-    public async Task<(bool IsSuccess, AuthResponseDto? Data, string ErrorMessage)> LoginAsync(LoginRequestDto request)
+    public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> LoginAsync(LoginRequestDto request)
     {
         var user = await _userManager.FindByEmailAsync(request.UsernameOrEmail) ?? await _userManager.FindByNameAsync(request.UsernameOrEmail);
-        if (user == null) return (false, null, "Invalid credentials.");
+        if (user == null) return (false, null, string.Empty, "Invalid credentials.");
 
         var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
-        if (!isPasswordValid) return (false, null, "Invalid credentials.");
+        if (!isPasswordValid) return (false, null, string.Empty, "Invalid credentials.");
 
         var token = _jwtTokenService.GenerateToken(user);
         var refreshToken = _jwtTokenService.GenerateRefreshToken();
@@ -66,29 +66,28 @@ public class AuthService
         return (true, new AuthResponseDto
         {
             Token = token,
-            RefreshToken = refreshToken,
             Username = user.UserName ?? string.Empty,
             Email = user.Email ?? string.Empty,
             DisplayName = user.DisplayName
-        }, string.Empty);
+        }, refreshToken, string.Empty);
     }
 
-    public async Task<(bool IsSuccess, AuthResponseDto? Data, string ErrorMessage)> RefreshTokenAsync(string token, string refreshToken, string ipAddress)
+    public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RefreshTokenAsync(string token, string refreshToken, string ipAddress)
     {
         var principal = _jwtTokenService.GetPrincipalFromExpiredToken(token);
-        if (principal == null) return (false, null, "Invalid access token.");
+        if (principal == null) return (false, null, string.Empty, "Invalid access token.");
 
         var username = principal.Identity?.Name;
-        if (username == null) return (false, null, "Invalid access token.");
+        if (username == null) return (false, null, string.Empty, "Invalid access token.");
 
         var user = await _userManager.FindByNameAsync(username);
-        if (user == null || await _userManager.IsLockedOutAsync(user)) return (false, null, "User is inactive or locked out.");
+        if (user == null || await _userManager.IsLockedOutAsync(user)) return (false, null, string.Empty, "User is inactive or locked out.");
 
         var storedValue = await _userManager.GetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
-        if (string.IsNullOrEmpty(storedValue)) return (false, null, "Invalid refresh token session.");
+        if (string.IsNullOrEmpty(storedValue)) return (false, null, string.Empty, "Invalid refresh token session.");
 
         var parts = storedValue.Split('|');
-        if (parts.Length != 2) return (false, null, "Corrupted refresh token data.");
+        if (parts.Length != 2) return (false, null, string.Empty, "Corrupted refresh token data.");
 
         var expiryString = parts[0];
         var storedHash = parts[1];
@@ -97,7 +96,7 @@ public class AuthService
         if (DateTime.TryParse(expiryString, out var expiryDate) && expiryDate < DateTime.UtcNow)
         {
             await _userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
-            return (false, null, "Refresh token expired. Please login again.");
+            return (false, null, string.Empty, "Refresh token expired. Please login again.");
         }
 
         // 2. Kiểm tra tính toàn vẹn bằng SHA-256 Hash + FixedTimeEquals để chống Timing Attack
@@ -111,7 +110,7 @@ public class AuthService
         {
             _logger.LogWarning("SECURITY ALERT: Refresh Token Reuse detected for user {Username} at {IP}", username, ipAddress);
             await _userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
-            return (false, null, "Invalid refresh token. All sessions revoked for security.");
+            return (false, null, string.Empty, "Invalid refresh token. All sessions revoked for security.");
         }
 
         // Nếu hợp lệ, sinh cặp token mới (Rotation)
@@ -125,11 +124,10 @@ public class AuthService
         return (true, new AuthResponseDto
         {
             Token = newToken,
-            RefreshToken = newRefreshToken,
             Username = user.UserName ?? string.Empty,
             Email = user.Email ?? string.Empty,
             DisplayName = user.DisplayName
-        }, string.Empty);
+        }, newRefreshToken, string.Empty);
     }
 
     public async Task<(bool IsSuccess, string ErrorMessage)> LogoutAsync(string username)

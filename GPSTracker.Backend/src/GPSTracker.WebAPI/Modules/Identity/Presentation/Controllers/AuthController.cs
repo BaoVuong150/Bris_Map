@@ -1,10 +1,8 @@
 using GPSTracker.WebAPI.Modules.Identity.Application.DTOs;
 using GPSTracker.WebAPI.Modules.Identity.Application.Services;
-using GPSTracker.WebAPI.Modules.Identity.Domain.Entities;
-using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using System.Security.Cryptography;
 
 namespace GPSTracker.WebAPI.Modules.Identity.Presentation.Controllers;
 
@@ -47,14 +45,7 @@ public class AuthController : ControllerBase
         }
 
         // Đính kèm Refresh Token vào HttpOnly Cookie
-        Response.Cookies.Append("refreshToken", result.Data.RefreshToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true, // Yêu cầu HTTPS ở Production
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(7),
-            Path = "/api/auth/refresh-token"
-        });
+        AppendRefreshTokenCookie(result.RefreshToken);
 
         return Ok(result.Data);
     }
@@ -65,14 +56,10 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        // Lấy Refresh Token từ request body hoặc HttpOnly Cookie
-        var incomingRefreshToken = request.RefreshToken;
-        if (string.IsNullOrEmpty(incomingRefreshToken))
-        {
-            incomingRefreshToken = Request.Cookies["refreshToken"];
-        }
+        // Lấy Refresh Token từ HttpOnly Cookie (KHÔNG lấy từ Body để chống JS đọc)
+        var incomingRefreshToken = Request.Cookies["refreshToken"];
 
-        if (string.IsNullOrEmpty(incomingRefreshToken)) return Unauthorized("Refresh token is missing.");
+        if (string.IsNullOrEmpty(incomingRefreshToken)) return Unauthorized(new { message = "Refresh token is missing." });
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
 
@@ -80,38 +67,48 @@ public class AuthController : ControllerBase
 
         if (!result.IsSuccess || result.Data == null)
         {
-            return Unauthorized(result.ErrorMessage);
+            return Unauthorized(new { message = result.ErrorMessage });
         }
 
-        Response.Cookies.Append("refreshToken", result.Data.RefreshToken, new CookieOptions
-        {
-            HttpOnly = true,
-            Secure = true,
-            SameSite = SameSiteMode.Strict,
-            Expires = DateTime.UtcNow.AddDays(7),
-            Path = "/api/auth/refresh-token"
-        });
+        AppendRefreshTokenCookie(result.RefreshToken);
 
         return Ok(result.Data);
     }
 
     [HttpPost("logout")]
+    [Authorize]
     public async Task<IActionResult> Logout()
     {
-        // Yêu cầu token hợp lệ mới được đăng xuất (Sẽ thêm Authorization Attribute sau)
         var username = User.Identity?.Name;
-        if (username == null) return Unauthorized();
+        if (username == null) return Unauthorized(new { message = "User not found." });
 
         var result = await _authService.LogoutAsync(username);
 
         if (!result.IsSuccess)
         {
-            return Unauthorized();
+            return Unauthorized(new { message = "Failed to logout." });
         }
 
-        // Xóa Cookie (Phải truyền Path trùng với lúc tạo)
-        Response.Cookies.Delete("refreshToken", new CookieOptions { Path = "/api/auth/refresh-token" });
+        // Xóa Cookie
+        DeleteRefreshTokenCookie();
 
         return Ok(new { message = "Logged out successfully." });
+    }
+
+    private void AppendRefreshTokenCookie(string token)
+    {
+        Response.Cookies.Append("refreshToken", token, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = true, // Yêu cầu HTTPS ở Production
+            SameSite = SameSiteMode.Strict,
+            Expires = DateTime.UtcNow.AddDays(7),
+            Path = "/api/auth/refresh-token"
+        });
+    }
+
+    private void DeleteRefreshTokenCookie()
+    {
+        Response.Cookies.Delete("refreshToken", new CookieOptions { Path = "/api/auth/refresh-token" });
     }
 }
