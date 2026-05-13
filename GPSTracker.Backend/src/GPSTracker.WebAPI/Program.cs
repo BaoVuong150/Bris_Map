@@ -1,41 +1,41 @@
+using GPSTracker.WebAPI.Shared.Infrastructure.Data;
+using GPSTracker.WebAPI.Shared.Infrastructure.Extensions;
+using Scalar.AspNetCore;
+
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
+// 1. Cấu hình các dịch vụ qua Extension Methods (Giúp Program.cs sạch sẽ)
+builder.Services.AddDatabaseConfiguration(builder.Configuration);
+builder.Services.AddIdentityConfiguration();
+builder.Services.AddJwtAuthentication(builder.Configuration);
+builder.Services.AddRateLimitingConfiguration();
+
+builder.Services.AddControllers();
+builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddOpenApi();
 
 var app = builder.Build();
 
-// Configure the HTTP request pipeline.
+// 4. Tự động chạy Migration và Seed data giả lập
+try
+{
+    await DbSeeder.SeedAsync(app.Services);
+}
+catch (Exception ex)
+{
+    Console.WriteLine($"Seeding failed: {ex.Message}");
+}
+
 if (app.Environment.IsDevelopment())
 {
     app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
-app.UseHttpsRedirection();
+app.UseRateLimiter(); // Phải đặt trước Authentication/Authorization
 
-var summaries = new[]
-{
-    "Freezing", "Bracing", "Chilly", "Cool", "Mild", "Warm", "Balmy", "Hot", "Sweltering", "Scorching"
-};
-
-app.MapGet("/weatherforecast", () =>
-{
-    var forecast =  Enumerable.Range(1, 5).Select(index =>
-        new WeatherForecast
-        (
-            DateOnly.FromDateTime(DateTime.Now.AddDays(index)),
-            Random.Shared.Next(-20, 55),
-            summaries[Random.Shared.Next(summaries.Length)]
-        ))
-        .ToArray();
-    return forecast;
-})
-.WithName("GetWeatherForecast");
+app.UseAuthentication();
+app.UseAuthorization();
+app.MapControllers();
 
 app.Run();
-
-record WeatherForecast(DateOnly Date, int TemperatureC, string? Summary)
-{
-    public int TemperatureF => 32 + (int)(TemperatureC / 0.5556);
-}
