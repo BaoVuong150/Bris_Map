@@ -7,18 +7,12 @@ using System.Security.Cryptography;
 
 namespace GPSTracker.WebAPI.Modules.Identity.Application.Services;
 
-public class JwtTokenService
+public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
 {
-    private readonly IConfiguration _configuration;
-
-    public JwtTokenService(IConfiguration configuration)
-    {
-        _configuration = configuration;
-    }
 
     public string GenerateToken(User user)
     {
-        var jwtSettings = _configuration.GetSection("JwtSettings");
+        var jwtSettings = configuration.GetSection("JwtSettings");
         var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Jwt SecretKey is missing");
         var issuer = jwtSettings["Issuer"];
         var audience = jwtSettings["Audience"];
@@ -63,7 +57,7 @@ public class JwtTokenService
 
     public ClaimsPrincipal? GetPrincipalFromExpiredToken(string token)
     {
-        var jwtSettings = _configuration.GetSection("JwtSettings");
+        var jwtSettings = configuration.GetSection("JwtSettings");
         var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Jwt SecretKey is missing");
 
         var tokenValidationParameters = new TokenValidationParameters

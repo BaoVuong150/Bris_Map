@@ -5,25 +5,15 @@ using System.Security.Cryptography;
 
 namespace GPSTracker.WebAPI.Modules.Identity.Application.Services;
 
-public class AuthService
+public class AuthService(UserManager<User> userManager, IJwtTokenService jwtTokenService, ILogger<AuthService> logger) : IAuthService
 {
-    private readonly UserManager<User> _userManager;
-    private readonly JwtTokenService _jwtTokenService;
-    private readonly ILogger<AuthService> _logger;
 
-    public AuthService(UserManager<User> userManager, JwtTokenService jwtTokenService, ILogger<AuthService> logger)
+    public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RegisterAsync(RegisterRequestDto request)
     {
-        _userManager = userManager;
-        _jwtTokenService = jwtTokenService;
-        _logger = logger;
-    }
-
-    public async Task<(bool IsSuccess, string ErrorMessage)> RegisterAsync(RegisterRequestDto request)
-    {
-        var existingUser = await _userManager.FindByEmailAsync(request.Email) ?? await _userManager.FindByNameAsync(request.Username);
+        var existingUser = await userManager.FindByEmailAsync(request.Email) ?? await userManager.FindByNameAsync(request.Username);
         if (existingUser != null)
         {
-            return (false, "Username or Email already exists.");
+            return (false, null, string.Empty, "Username or Email already exists.");
         }
 
         var user = new User
@@ -33,57 +23,44 @@ public class AuthService
             DisplayName = request.DisplayName
         };
 
-        var result = await _userManager.CreateAsync(user, request.Password);
+        var result = await userManager.CreateAsync(user, request.Password);
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            return (false, errors);
+            return (false, null, string.Empty, errors);
         }
 
-        return (true, string.Empty);
+        // Tự động sinh Token ngay sau khi đăng ký thành công (Auto-login)
+        var (data, refreshToken) = await GenerateUserTokensAsync(user);
+
+        return (true, data, refreshToken, string.Empty);
     }
 
     public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> LoginAsync(LoginRequestDto request)
     {
-        var user = await _userManager.FindByEmailAsync(request.UsernameOrEmail) ?? await _userManager.FindByNameAsync(request.UsernameOrEmail);
+        var user = await userManager.FindByEmailAsync(request.UsernameOrEmail) ?? await userManager.FindByNameAsync(request.UsernameOrEmail);
         if (user == null) return (false, null, string.Empty, "Invalid credentials.");
 
-        var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+        var isPasswordValid = await userManager.CheckPasswordAsync(user, request.Password);
         if (!isPasswordValid) return (false, null, string.Empty, "Invalid credentials.");
 
-        var token = _jwtTokenService.GenerateToken(user);
-        var refreshToken = _jwtTokenService.GenerateRefreshToken();
-        var hashedRefreshToken = _jwtTokenService.HashToken(refreshToken);
-        var expiryDate = DateTime.UtcNow.AddDays(7).ToString("O");
-        var tokenValue = $"{expiryDate}|{hashedRefreshToken}"; // Expiry đứng trước để Fail-fast
+        var (data, refreshToken) = await GenerateUserTokensAsync(user);
 
-        // Lưu HASHED Refresh Token + Expiry vào bảng AspNetUserTokens
-        await _userManager.SetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken", tokenValue);
-
-        user.LastSeenAt = DateTime.UtcNow;
-        await _userManager.UpdateAsync(user);
-
-        return (true, new AuthResponseDto
-        {
-            Token = token,
-            Username = user.UserName ?? string.Empty,
-            Email = user.Email ?? string.Empty,
-            DisplayName = user.DisplayName
-        }, refreshToken, string.Empty);
+        return (true, data, refreshToken, string.Empty);
     }
 
     public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RefreshTokenAsync(string token, string refreshToken, string ipAddress)
     {
-        var principal = _jwtTokenService.GetPrincipalFromExpiredToken(token);
+        var principal = jwtTokenService.GetPrincipalFromExpiredToken(token);
         if (principal == null) return (false, null, string.Empty, "Invalid access token.");
 
         var username = principal.Identity?.Name;
         if (username == null) return (false, null, string.Empty, "Invalid access token.");
 
-        var user = await _userManager.FindByNameAsync(username);
-        if (user == null || await _userManager.IsLockedOutAsync(user)) return (false, null, string.Empty, "User is inactive or locked out.");
+        var user = await userManager.FindByNameAsync(username);
+        if (user == null || await userManager.IsLockedOutAsync(user)) return (false, null, string.Empty, "User is inactive or locked out.");
 
-        var storedValue = await _userManager.GetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+        var storedValue = await userManager.GetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
         if (string.IsNullOrEmpty(storedValue)) return (false, null, string.Empty, "Invalid refresh token session.");
 
         var parts = storedValue.Split('|');
@@ -95,12 +72,12 @@ public class AuthService
         // 1. Kiểm tra Expiry Date
         if (DateTime.TryParse(expiryString, out var expiryDate) && expiryDate < DateTime.UtcNow)
         {
-            await _userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+            await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
             return (false, null, string.Empty, "Refresh token expired. Please login again.");
         }
 
         // 2. Kiểm tra tính toàn vẹn bằng SHA-256 Hash + FixedTimeEquals để chống Timing Attack
-        var incomingHash = _jwtTokenService.HashToken(refreshToken);
+        var incomingHash = jwtTokenService.HashToken(refreshToken);
         bool isValid = CryptographicOperations.FixedTimeEquals(
             Convert.FromBase64String(incomingHash),
             Convert.FromBase64String(storedHash)
@@ -108,34 +85,49 @@ public class AuthService
 
         if (!isValid)
         {
-            _logger.LogWarning("SECURITY ALERT: Refresh Token Reuse detected for user {Username} at {IP}", username, ipAddress);
-            await _userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+            logger.LogWarning("SECURITY ALERT: Refresh Token Reuse detected for user {Username} at {IP}", username, ipAddress);
+            await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
             return (false, null, string.Empty, "Invalid refresh token. All sessions revoked for security.");
         }
 
         // Nếu hợp lệ, sinh cặp token mới (Rotation)
-        var newToken = _jwtTokenService.GenerateToken(user);
-        var newRefreshToken = _jwtTokenService.GenerateRefreshToken();
-        var newHashedToken = _jwtTokenService.HashToken(newRefreshToken);
-        var newExpiry = DateTime.UtcNow.AddDays(7).ToString("O");
+        var (data, newRefreshToken) = await GenerateUserTokensAsync(user);
 
-        await _userManager.SetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken", $"{newExpiry}|{newHashedToken}");
-
-        return (true, new AuthResponseDto
-        {
-            Token = newToken,
-            Username = user.UserName ?? string.Empty,
-            Email = user.Email ?? string.Empty,
-            DisplayName = user.DisplayName
-        }, newRefreshToken, string.Empty);
+        return (true, data, newRefreshToken, string.Empty);
     }
 
     public async Task<(bool IsSuccess, string ErrorMessage)> LogoutAsync(string username)
     {
-        var user = await _userManager.FindByNameAsync(username);
+        var user = await userManager.FindByNameAsync(username);
         if (user == null) return (false, "User not found.");
 
-        await _userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+        await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
         return (true, string.Empty);
+    }
+
+    // --- HELPER METHOD ĐỂ TÁI SỬ DỤNG CHO REGISTER, LOGIN, REFRESH ---
+    private async Task<(AuthResponseDto Data, string RefreshToken)> GenerateUserTokensAsync(User user)
+    {
+        var token = jwtTokenService.GenerateToken(user);
+        var refreshToken = jwtTokenService.GenerateRefreshToken();
+        var hashedRefreshToken = jwtTokenService.HashToken(refreshToken);
+        var expiryDate = DateTime.UtcNow.AddDays(7).ToString("O");
+        var tokenValue = $"{expiryDate}|{hashedRefreshToken}"; // Expiry đứng trước để Fail-fast
+
+        // Lưu HASHED Refresh Token + Expiry vào bảng AspNetUserTokens
+        await userManager.SetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken", tokenValue);
+
+        user.LastSeenAt = DateTime.UtcNow;
+        await userManager.UpdateAsync(user);
+
+        var data = new AuthResponseDto
+        {
+            Token = token,
+            Username = user.UserName ?? string.Empty,
+            Email = user.Email ?? string.Empty,
+            DisplayName = user.DisplayName
+        };
+
+        return (data, refreshToken);
     }
 }

@@ -8,27 +8,24 @@ namespace GPSTracker.WebAPI.Modules.Identity.Presentation.Controllers;
 
 [ApiController]
 [Route("api/auth")]
-public class AuthController : ControllerBase
+public class AuthController(IAuthService authService) : ControllerBase
 {
-    private readonly AuthService _authService;
-
-    public AuthController(AuthService authService)
-    {
-        _authService = authService;
-    }
 
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequestDto request)
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var result = await _authService.RegisterAsync(request);
-        if (!result.IsSuccess)
+        var result = await authService.RegisterAsync(request);
+        if (!result.IsSuccess || result.Data == null)
         {
             return BadRequest(new { message = result.ErrorMessage });
         }
 
-        return Ok(new { message = "User registered successfully." });
+        // Đính kèm Refresh Token vào HttpOnly Cookie
+        AppendRefreshTokenCookie(result.RefreshToken);
+
+        return Ok(result.Data);
     }
 
     [HttpPost("login")]
@@ -37,7 +34,7 @@ public class AuthController : ControllerBase
     {
         if (!ModelState.IsValid) return BadRequest(ModelState);
 
-        var result = await _authService.LoginAsync(request);
+        var result = await authService.LoginAsync(request);
 
         if (!result.IsSuccess || result.Data == null)
         {
@@ -63,7 +60,7 @@ public class AuthController : ControllerBase
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
 
-        var result = await _authService.RefreshTokenAsync(request.Token, incomingRefreshToken, ipAddress);
+        var result = await authService.RefreshTokenAsync(request.Token, incomingRefreshToken, ipAddress);
 
         if (!result.IsSuccess || result.Data == null)
         {
@@ -82,7 +79,7 @@ public class AuthController : ControllerBase
         var username = User.Identity?.Name;
         if (username == null) return Unauthorized(new { message = "User not found." });
 
-        var result = await _authService.LogoutAsync(username);
+        var result = await authService.LogoutAsync(username);
 
         if (!result.IsSuccess)
         {
