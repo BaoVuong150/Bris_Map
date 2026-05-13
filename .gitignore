@@ -1,0 +1,20 @@
+# Bí mật quy trình code của bạn (Không đẩy lên Git)
+*.md
+*.geminirules
+
+# Thư mục build và file tạm của .NET (Backend)
+bin/
+obj/
+*.user
+appsettings.Development.json
+
+# Thư viện và file tạm của React (Frontend)
+node_modules/
+dist/
+build/
+.env
+.env.local
+
+# File rác hệ điều hành
+.DS_Store
+Thumbs.db

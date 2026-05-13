@@ -1,0 +1,75 @@
+services:
+  # 1. Database PostgreSQL + PostGIS
+  postgres:
+    image: postgis/postgis:15-3.3
+    container_name: gps_tracker_db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: Password123!
+      POSTGRES_DB: GPSTrackerDB
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 2. Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: gps_tracker_redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # 3. Backend (C# ASP.NET Core) chạy qua Docker
+  backend:
+    image: mcr.microsoft.com/dotnet/sdk:10.0
+    container_name: gps_tracker_backend
+    working_dir: /app/GPSTracker.Backend/src/GPSTracker.WebAPI
+    volumes:
+      - .:/app # Map toàn bộ code vào trong docker
+    ports:
+      - "5000:5000"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ASPNETCORE_URLS=http://+:5000
+    command: dotnet watch run --no-launch-profile
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # 4. Frontend (React + Vite) chạy qua Docker
+  frontend:
+    image: node:20-alpine
+    container_name: gps_tracker_frontend
+    working_dir: /app/GPSTracker.Frontend
+    volumes:
+      - .:/app # Map code vào trong để chỉnh sửa bên ngoài nhận ngay
+      - frontend_node_modules:/app/GPSTracker.Frontend/node_modules # Cô lập node_modules vào volume riêng
+    ports:
+      - "5173:5173"
+    environment:
+      - CHOKIDAR_USEPOLLING=true # Cần thiết để Hot Reload hoạt động mượt trong Docker
+      - VITE_USE_POLLING=true
+    command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  redis_data:
+  frontend_node_modules:
