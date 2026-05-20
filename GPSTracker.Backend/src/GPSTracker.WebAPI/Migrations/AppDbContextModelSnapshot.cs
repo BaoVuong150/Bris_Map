@@ -130,6 +130,37 @@ namespace GPSTracker.WebAPI.Migrations
                     b.ToTable("AspNetUsers", (string)null);
                 });
 
+            modelBuilder.Entity("GPSTracker.WebAPI.Modules.Messages.Domain.Entities.Message", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("ReceiverId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SenderId")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("SentAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceiverId");
+
+                    b.HasIndex("SenderId");
+
+                    b.ToTable("Messages");
+                });
+
             modelBuilder.Entity("GPSTracker.WebAPI.Modules.Tracking.Domain.Entities.LocationHistory", b =>
                 {
                     b.Property<int>("Id")
@@ -305,6 +336,25 @@ namespace GPSTracker.WebAPI.Migrations
                     b.Navigation("Receiver");
 
                     b.Navigation("Requester");
+                });
+
+            modelBuilder.Entity("GPSTracker.WebAPI.Modules.Messages.Domain.Entities.Message", b =>
+                {
+                    b.HasOne("GPSTracker.WebAPI.Modules.Identity.Domain.Entities.User", "Receiver")
+                        .WithMany()
+                        .HasForeignKey("ReceiverId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("GPSTracker.WebAPI.Modules.Identity.Domain.Entities.User", "Sender")
+                        .WithMany()
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Receiver");
+
+                    b.Navigation("Sender");
                 });
 
             modelBuilder.Entity("GPSTracker.WebAPI.Modules.Tracking.Domain.Entities.LocationHistory", b =>

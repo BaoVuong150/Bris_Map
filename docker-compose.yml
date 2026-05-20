@@ -33,25 +33,6 @@ services:
       timeout: 5s
       retries: 5
 
-  # 3. Backend (C# ASP.NET Core) chạy qua Docker
-  backend:
-    image: mcr.microsoft.com/dotnet/sdk:10.0
-    container_name: gps_tracker_backend
-    working_dir: /app/GPSTracker.Backend/src/GPSTracker.WebAPI
-    volumes:
-      - .:/app # Map toàn bộ code vào trong docker
-    ports:
-      - "5000:5000"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
-      - ASPNETCORE_URLS=http://+:5000
-    command: dotnet watch run --no-launch-profile
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-
   # 4. Frontend (React + Vite) chạy qua Docker
   frontend:
     image: node:20-alpine
@@ -66,8 +47,6 @@ services:
       - CHOKIDAR_USEPOLLING=true # Cần thiết để Hot Reload hoạt động mượt trong Docker
       - VITE_USE_POLLING=true
     command: sh -c "npm install && npm run dev -- --host 0.0.0.0"
-    depends_on:
-      - backend
 
 volumes:
   postgres_data:

@@ -1,6 +1,7 @@
 using GPSTracker.WebAPI.Modules.Friendships.Domain.Entities;
 using GPSTracker.WebAPI.Modules.Identity.Domain.Entities;
 using GPSTracker.WebAPI.Modules.Tracking.Domain.Entities;
+using GPSTracker.WebAPI.Modules.Messages.Domain.Entities;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 
@@ -14,6 +15,7 @@ public class AppDbContext : IdentityDbContext<User>
 
     public DbSet<Friendship> Friendships { get; set; }
     public DbSet<LocationHistory> LocationHistories { get; set; }
+    public DbSet<Message> Messages { get; set; }
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -39,5 +41,18 @@ public class AppDbContext : IdentityDbContext<User>
         builder.Entity<Friendship>()
             .HasIndex(f => new { f.RequesterId, f.ReceiverId })
             .IsUnique();
+
+        // Cấu hình bảng Message (tránh lỗi cascade delete vòng lặp)
+        builder.Entity<Message>()
+            .HasOne(m => m.Sender)
+            .WithMany()
+            .HasForeignKey(m => m.SenderId)
+            .OnDelete(DeleteBehavior.Restrict);
+
+        builder.Entity<Message>()
+            .HasOne(m => m.Receiver)
+            .WithMany()
+            .HasForeignKey(m => m.ReceiverId)
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }

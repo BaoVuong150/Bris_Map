@@ -49,10 +49,8 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     [HttpPost("refresh-token")]
     [EnableRateLimiting("login_policy")] // Tránh Brute-force Refresh
-    public async Task<IActionResult> RefreshToken([FromBody] RefreshTokenRequestDto request)
+    public async Task<IActionResult> RefreshToken()
     {
-        if (!ModelState.IsValid) return BadRequest(ModelState);
-
         // Lấy Refresh Token từ HttpOnly Cookie (KHÔNG lấy từ Body để chống JS đọc)
         var incomingRefreshToken = Request.Cookies["refreshToken"];
 
@@ -60,7 +58,7 @@ public class AuthController(IAuthService authService) : ControllerBase
 
         var ipAddress = HttpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown_ip";
 
-        var result = await authService.RefreshTokenAsync(request.Token, incomingRefreshToken, ipAddress);
+        var result = await authService.RefreshTokenAsync(incomingRefreshToken, ipAddress);
 
         if (!result.IsSuccess || result.Data == null)
         {
@@ -73,17 +71,15 @@ public class AuthController(IAuthService authService) : ControllerBase
     }
 
     [HttpPost("logout")]
-    [Authorize]
     public async Task<IActionResult> Logout()
     {
-        var username = User.Identity?.Name;
-        if (username == null) return Unauthorized(new { message = "User not found." });
-
-        var result = await authService.LogoutAsync(username);
-
-        if (!result.IsSuccess)
+        var incomingRefreshToken = Request.Cookies["refreshToken"];
+        
+        // Không quan tâm Request có truyền Access Token hay không (xóa [Authorize]), 
+        // miễn là có Cookie Refresh Token là ta cho xóa ở Redis
+        if (!string.IsNullOrEmpty(incomingRefreshToken))
         {
-            return Unauthorized(new { message = "Failed to logout." });
+            await authService.LogoutAsync(incomingRefreshToken);
         }
 
         // Xóa Cookie
@@ -97,7 +93,7 @@ public class AuthController(IAuthService authService) : ControllerBase
         Response.Cookies.Append("refreshToken", token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = true, // Yêu cầu HTTPS ở Production
+            Secure = Request.IsHttps, // Yêu cầu HTTPS ở Production
             SameSite = SameSiteMode.Strict,
             Expires = DateTime.UtcNow.AddDays(7),
             Path = "/api/auth/refresh-token"

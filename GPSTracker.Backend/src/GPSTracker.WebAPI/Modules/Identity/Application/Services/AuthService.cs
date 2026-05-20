@@ -3,9 +3,11 @@ using GPSTracker.WebAPI.Modules.Identity.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using System.Security.Cryptography;
 
+using Microsoft.Extensions.Caching.Distributed;
+
 namespace GPSTracker.WebAPI.Modules.Identity.Application.Services;
 
-public class AuthService(UserManager<User> userManager, IJwtTokenService jwtTokenService, ILogger<AuthService> logger) : IAuthService
+public class AuthService(UserManager<User> userManager, IJwtTokenService jwtTokenService, IDistributedCache cache) : IAuthService
 {
 
     public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RegisterAsync(RegisterRequestDto request)
@@ -49,59 +51,45 @@ public class AuthService(UserManager<User> userManager, IJwtTokenService jwtToke
         return (true, data, refreshToken, string.Empty);
     }
 
-    public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RefreshTokenAsync(string token, string refreshToken, string ipAddress)
+    public async Task<(bool IsSuccess, AuthResponseDto? Data, string RefreshToken, string ErrorMessage)> RefreshTokenAsync(string refreshToken, string ipAddress)
     {
-        var principal = jwtTokenService.GetPrincipalFromExpiredToken(token);
-        if (principal == null) return (false, null, string.Empty, "Invalid access token.");
+        var hashedIncomingToken = jwtTokenService.HashToken(refreshToken);
+        var cacheKey = $"RT:{hashedIncomingToken}";
+        var storedValue = await cache.GetStringAsync(cacheKey);
 
-        var username = principal.Identity?.Name;
-        if (username == null) return (false, null, string.Empty, "Invalid access token.");
-
-        var user = await userManager.FindByNameAsync(username);
-        if (user == null || await userManager.IsLockedOutAsync(user)) return (false, null, string.Empty, "User is inactive or locked out.");
-
-        var storedValue = await userManager.GetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
         if (string.IsNullOrEmpty(storedValue)) return (false, null, string.Empty, "Invalid refresh token session.");
 
         var parts = storedValue.Split('|');
         if (parts.Length != 2) return (false, null, string.Empty, "Corrupted refresh token data.");
 
         var expiryString = parts[0];
-        var storedHash = parts[1];
+        var userId = parts[1]; // Lấy UserId từ Redis
 
         // 1. Kiểm tra Expiry Date
         if (DateTime.TryParse(expiryString, out var expiryDate) && expiryDate < DateTime.UtcNow)
         {
-            await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+            await cache.RemoveAsync(cacheKey);
             return (false, null, string.Empty, "Refresh token expired. Please login again.");
         }
 
-        // 2. Kiểm tra tính toàn vẹn bằng SHA-256 Hash + FixedTimeEquals để chống Timing Attack
-        var incomingHash = jwtTokenService.HashToken(refreshToken);
-        bool isValid = CryptographicOperations.FixedTimeEquals(
-            Convert.FromBase64String(incomingHash),
-            Convert.FromBase64String(storedHash)
-        );
+        var user = await userManager.FindByIdAsync(userId);
+        if (user == null || await userManager.IsLockedOutAsync(user)) return (false, null, string.Empty, "User is inactive or locked out.");
 
-        if (!isValid)
-        {
-            logger.LogWarning("SECURITY ALERT: Refresh Token Reuse detected for user {Username} at {IP}", username, ipAddress);
-            await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
-            return (false, null, string.Empty, "Invalid refresh token. All sessions revoked for security.");
-        }
-
-        // Nếu hợp lệ, sinh cặp token mới (Rotation)
+        // Nếu hợp lệ, xóa token cũ (Rotation) và sinh cặp token mới
+        await cache.RemoveAsync(cacheKey);
         var (data, newRefreshToken) = await GenerateUserTokensAsync(user);
 
         return (true, data, newRefreshToken, string.Empty);
     }
 
-    public async Task<(bool IsSuccess, string ErrorMessage)> LogoutAsync(string username)
+    public async Task<(bool IsSuccess, string ErrorMessage)> LogoutAsync(string refreshToken)
     {
-        var user = await userManager.FindByNameAsync(username);
-        if (user == null) return (false, "User not found.");
+        if (string.IsNullOrEmpty(refreshToken)) return (true, string.Empty);
 
-        await userManager.RemoveAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken");
+        var hashedToken = jwtTokenService.HashToken(refreshToken);
+        var cacheKey = $"RT:{hashedToken}";
+        await cache.RemoveAsync(cacheKey);
+
         return (true, string.Empty);
     }
 
@@ -112,16 +100,23 @@ public class AuthService(UserManager<User> userManager, IJwtTokenService jwtToke
         var refreshToken = jwtTokenService.GenerateRefreshToken();
         var hashedRefreshToken = jwtTokenService.HashToken(refreshToken);
         var expiryDate = DateTime.UtcNow.AddDays(7).ToString("O");
-        var tokenValue = $"{expiryDate}|{hashedRefreshToken}"; // Expiry đứng trước để Fail-fast
 
-        // Lưu HASHED Refresh Token + Expiry vào bảng AspNetUserTokens
-        await userManager.SetAuthenticationTokenAsync(user, "GPSTracker", "RefreshToken", tokenValue);
+        // Value bây giờ lưu UserId thay vì Hash. Key là Hash của Token.
+        var tokenValue = $"{expiryDate}|{user.Id}";
 
-        user.LastSeenAt = DateTime.UtcNow;
-        await userManager.UpdateAsync(user);
+        // Lưu vào Redis (Chỉ thiết bị cầm đúng Refresh Token này mới gửi lên khớp cái Hash này)
+        var cacheKey = $"RT:{hashedRefreshToken}";
+        await cache.SetStringAsync(cacheKey, tokenValue, new DistributedCacheEntryOptions
+        {
+            AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7)
+        });
+
+        // Bỏ lưu Database LastSeenAt đồng bộ ở đây để tăng max ping (1 triệu user/s). 
+        // Có thể đẩy LastSeenAt xuống Message Queue (RabbitMQ) sau.
 
         var data = new AuthResponseDto
         {
+            Id = user.Id,
             Token = token,
             Username = user.UserName ?? string.Empty,
             Email = user.Email ?? string.Empty,

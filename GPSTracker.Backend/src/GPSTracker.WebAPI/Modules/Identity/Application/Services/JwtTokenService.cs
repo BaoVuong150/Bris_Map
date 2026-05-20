@@ -54,27 +54,4 @@ public class JwtTokenService(IConfiguration configuration) : IJwtTokenService
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(token));
         return Convert.ToBase64String(hash);
     }
-
-    public ClaimsPrincipal? GetPrincipalFromExpiredToken(string token)
-    {
-        var jwtSettings = configuration.GetSection("JwtSettings");
-        var secretKey = jwtSettings["SecretKey"] ?? throw new InvalidOperationException("Jwt SecretKey is missing");
-
-        var tokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateAudience = false,
-            ValidateIssuer = false,
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey)),
-            ValidateLifetime = false // Here we are saying that we don't care about the token's expiration date
-        };
-
-        var tokenHandler = new JwtSecurityTokenHandler();
-        var principal = tokenHandler.ValidateToken(token, tokenValidationParameters, out SecurityToken securityToken);
-        var jwtSecurityToken = securityToken as JwtSecurityToken;
-        if (jwtSecurityToken == null || !jwtSecurityToken.Header.Alg.Equals(SecurityAlgorithms.HmacSha256, StringComparison.InvariantCultureIgnoreCase))
-            throw new SecurityTokenException("Invalid token");
-
-        return principal;
-    }
 }

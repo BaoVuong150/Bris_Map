@@ -8,5 +8,4 @@ public interface IJwtTokenService
     string GenerateToken(User user);
     string GenerateRefreshToken();
     string HashToken(string token);
-    ClaimsPrincipal? GetPrincipalFromExpiredToken(string token);
 }
