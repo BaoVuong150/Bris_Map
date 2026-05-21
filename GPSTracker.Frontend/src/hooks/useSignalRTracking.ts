@@ -4,6 +4,7 @@ import { useAuthStore } from '../stores/useAuthStore';
 import { useLocationStore } from '../stores/useLocationStore';
 import { useChatStore } from '../stores/useChatStore';
 import { useFriendshipStore } from '../stores/useFriendshipStore';
+import { useMessageStore } from '../stores/useMessageStore';
 import axiosClient from '../api/axiosClient';
 
 export const useSignalRTracking = () => {
@@ -18,6 +19,7 @@ export const useSignalRTracking = () => {
   const incrementPendingRequests = useFriendshipStore(state => state.incrementPendingRequests);
   const setPendingRequestsCount = useFriendshipStore(state => state.setPendingRequestsCount);
   const triggerUpdate = useFriendshipStore(state => state.triggerUpdate);
+  const setTotalUnreadCount = useMessageStore(state => state.setTotalUnreadCount);
 
   const hubConnectionRef = useRef<signalR.HubConnection | null>(null);
   const [hubConnection, setHubConnection] = useState<signalR.HubConnection | null>(null);
@@ -67,6 +69,10 @@ export const useSignalRTracking = () => {
     // Lắng nghe tin nhắn từ bạn bè
     connection.on('ReceiveMessage', (message: any) => {
       addMessage(message);
+    });
+
+    connection.on('UpdateUnreadCount', (count: number) => {
+      setTotalUnreadCount(count);
     });
 
     // Lắng nghe thông báo kết bạn

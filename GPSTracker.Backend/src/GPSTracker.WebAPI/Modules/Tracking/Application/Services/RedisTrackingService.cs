@@ -109,17 +109,50 @@ public class RedisTrackingService(IConnectionMultiplexer redis, ILogger<RedisTra
             return true; 
         }
     }
+
     public async Task<bool> CheckRateLimitAsync(string userId, string action, int intervalSeconds)
+    {
+        var key = $"ratelimit:{action}:{userId}";
+        return await _db.StringSetAsync(key, "1", TimeSpan.FromSeconds(intervalSeconds), When.NotExists);
+    }
+
+    public async Task<List<string>> GetCachedFriendIdsAsync(string userId)
     {
         try
         {
-            var key = $"User:{userId}:RateLimit:{action}";
-            return await _db.StringSetAsync(key, "1", TimeSpan.FromSeconds(intervalSeconds), When.NotExists);
+            var key = $"friends:{userId}";
+            var friends = await _db.SetMembersAsync(key);
+            return friends.Select(f => f.ToString()).ToList();
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "[Redis] Lỗi RateLimit cho action {Action} của user {UserId}.", action, userId);
-            return true;
+            logger.LogError(ex, "Lỗi khi lấy danh sách bạn bè từ Redis cho user {UserId}", userId);
+            return new List<string>();
+        }
+    }
+
+    public async Task UpdateCachedFriendsAsync(string userId, List<string> friendIds)
+    {
+        try
+        {
+            var key = $"friends:{userId}";
+            var tran = _db.CreateTransaction();
+            
+            // Xóa danh sách cũ
+            _ = tran.KeyDeleteAsync(key);
+            
+            // Thêm danh sách mới nếu có
+            if (friendIds.Any())
+            {
+                var redisValues = friendIds.Select(id => (RedisValue)id).ToArray();
+                _ = tran.SetAddAsync(key, redisValues);
+            }
+            
+            await tran.ExecuteAsync();
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(ex, "Lỗi khi cập nhật danh sách bạn bè vào Redis cho user {UserId}", userId);
         }
     }
 

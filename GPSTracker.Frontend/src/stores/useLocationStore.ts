@@ -9,6 +9,7 @@ export interface UserLocation {
   heading?: number; // Hướng di chuyển (0-360 độ) để xoay icon cái xe
   speed?: number;   // Tốc độ di chuyển
   isGhostMode?: boolean;
+  displayName?: string;
 }
 
 // Cấu trúc của "Đám mây" Zustand
@@ -59,17 +60,20 @@ export const useLocationStore = create<LocationState>((set) => ({
     return { locations: newLocations };
   }),
 
-  updateLocation: (newLoc) => set((state) => ({
-    // Cập nhật tọa độ mới, ghi đè lên tọa độ cũ của người đó
-    locations: {
-      ...state.locations,
-      [newLoc.userId]: {
-        ...newLoc,
-        // Giữ lại trạng thái Ghost Mode hiện tại nếu Backend không gửi kèm trong packet UpdateLocation
-        isGhostMode: state.locations[newLoc.userId]?.isGhostMode ?? false
+  updateLocation: (newLoc) => set((state) => {
+    const existingLoc = state.locations[newLoc.userId] || {};
+    return {
+      // Cập nhật tọa độ mới, ghi đè lên tọa độ cũ của người đó nhưng giữ lại thông tin cũ (displayName)
+      locations: {
+        ...state.locations,
+        [newLoc.userId]: {
+          ...existingLoc, // Giữ lại displayName và các trường khác
+          ...newLoc,      // Ghi đè tọa độ mới
+          isGhostMode: existingLoc.isGhostMode ?? false
+        }
       }
-    }
-  })),
+    };
+  }),
 
   updateGhostMode: (userId, isGhostMode) => set((state) => {
     const existingLoc = state.locations[userId];

@@ -20,4 +20,8 @@ public interface IRedisTrackingService
     // Ghost Mode State
     Task SetGhostModeAsync(string userId, bool isGhostMode);
     Task<bool> GetGhostModeAsync(string userId);
+
+    // Caching bạn bè để SignalR không cần truy vấn Database liên tục
+    Task<List<string>> GetCachedFriendIdsAsync(string userId);
+    Task UpdateCachedFriendsAsync(string userId, List<string> friendIds);
 }

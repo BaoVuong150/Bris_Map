@@ -8,9 +8,11 @@ using Microsoft.EntityFrameworkCore;
 
 using System.Collections.Concurrent;
 
+using GPSTracker.WebAPI.Modules.Tracking.Application.Interfaces;
+
 namespace GPSTracker.WebAPI.Modules.Friendships.Application.Services;
 
-public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubContext) : IFriendshipService
+public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubContext, IRedisTrackingService redisTrackingService) : IFriendshipService
 {
     // Sử dụng Striped Lock (Mảng 1024 ổ khóa) để chống Memory Leak
     private static readonly SemaphoreSlim[] _locks = Enumerable.Range(0, 1024).Select(_ => new SemaphoreSlim(1, 1)).ToArray();
@@ -111,6 +113,11 @@ public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubCont
                 FromUserId = userId,
                 Message = "Tuyệt vời, sếp và người đó đã là bạn bè!"
             });
+
+            // Cập nhật lại Redis Cache cho cả 2 người
+            await SyncFriendsToRedisAsync(userId);
+            await SyncFriendsToRedisAsync(requesterId);
+
             return (true, "Friend request accepted.");
         }
         
@@ -220,6 +227,11 @@ public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubCont
                 FromUserId = blockerId,
                 Message = "You have been blocked."
             });
+
+            // Cập nhật lại Redis Cache
+            await SyncFriendsToRedisAsync(blockerId);
+            await SyncFriendsToRedisAsync(blockedId);
+
             return (true, "User blocked successfully.");
         }
         return (false, "Database error.");
@@ -256,6 +268,11 @@ public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubCont
                 FromUserId = userId,
                 Message = "User has removed you from their friend list."
             });
+
+            // Cập nhật lại Redis Cache
+            await SyncFriendsToRedisAsync(userId);
+            await SyncFriendsToRedisAsync(friendId);
+
             return (true, "Friend removed successfully.");
         }
         return (false, "Database error.");
@@ -309,5 +326,12 @@ public class FriendshipService(AppDbContext context, IHubContext<AppHub> hubCont
             DisplayName = f.Receiver.DisplayName,
             Status = f.Status
         }).ToList();
+    }
+
+    private async Task SyncFriendsToRedisAsync(string userId)
+    {
+        var friends = await GetFriendsAsync(userId);
+        var friendIds = friends.Select(f => f.UserId).ToList();
+        await redisTrackingService.UpdateCachedFriendsAsync(userId, friendIds);
     }
 }

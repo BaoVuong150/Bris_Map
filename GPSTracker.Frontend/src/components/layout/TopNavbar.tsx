@@ -5,22 +5,34 @@ import { useChatStore } from '../../stores/useChatStore';
 import { useFriendshipStore } from '../../stores/useFriendshipStore';
 import FriendsSidebar from '../friendships/FriendsSidebar';
 import BlockedUsersModal from '../friendships/BlockedUsersModal';
+import MessagesDropdown from '../chat/MessagesDropdown';
+import { useMessageStore } from '../../stores/useMessageStore';
 
 const TopNavbar: React.FC = () => {
   const user = useAuthStore(state => state.user);
   const logout = useAuthStore(state => state.logout);
   const connectionStatus = useLocationStore(state => state.connectionStatus);
-  const unreadMessagesCount = useChatStore(state => state.messages.filter(m => !m.isRead).length);
+  const isSharingLocation = useLocationStore(state => state.isSharingLocation);
+  const toggleSharing = useLocationStore(state => state.toggleSharing);
   const pendingRequestsCount = useFriendshipStore(state => state.pendingRequestsCount);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [isFriendsSidebarOpen, setIsFriendsSidebarOpen] = useState(false);
   const [isBlockedModalOpen, setIsBlockedModalOpen] = useState(false);
+  const [showMessageMenu, setShowMessageMenu] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+
+  const fetchTotalUnreadCount = useMessageStore(state => state.fetchTotalUnreadCount);
+  const totalUnreadCount = useMessageStore(state => state.totalUnreadCount);
+
+  useEffect(() => {
+    fetchTotalUnreadCount();
+  }, []);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setShowProfileMenu(false);
+        setShowMessageMenu(false);
       }
     };
 
@@ -46,7 +58,7 @@ const TopNavbar: React.FC = () => {
             </div>
             <span className="text-[#e4e6eb] font-bold text-[19px] hidden sm:block tracking-wide group-hover:text-white transition-colors">Bris Map</span>
           </div>
-          
+
           {/* Tín hiệu kết nối */}
           <div className="hidden lg:flex bg-[#3a3b3c]/50 px-3 py-1.5 rounded-full border border-[#393a3b] items-center gap-2">
             <div className={`w-2.5 h-2.5 rounded-full ${connectionStatus === 'connected' ? 'bg-green-500 animate-pulse shadow-[0_0_8px_rgba(34,197,94,0.6)]' : connectionStatus === 'reconnecting' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></div>
@@ -71,30 +83,44 @@ const TopNavbar: React.FC = () => {
             {pendingRequestsCount > 0 && (
               <div className="absolute top-1 right-7 w-[18px] h-[18px] bg-[#e41e3f] rounded-full border border-[#242526] flex items-center justify-center text-white text-[10px] font-bold">
                 {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
-              </div> 
-            )}
-          </div>
-          {/* Inactive Tab (Chat Messages) */}
-          <div 
-            onClick={() => alert("Chọn một người bạn từ danh sách để bắt đầu Chat!")}
-            className="w-[110px] h-12 flex items-center justify-center rounded-lg hover:bg-[#3a3b3c] cursor-pointer transition-colors relative" 
-            title="Messages"
-          >
-            <svg className="w-7 h-7 text-[#b0b3b8]" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2"><path strokeLinecap="round" strokeLinejoin="round" d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z"></path></svg>
-            {unreadMessagesCount > 0 && (
-              <div className="absolute top-2 right-8 w-4 h-4 bg-[#e41e3f] rounded-full border border-[#242526] flex items-center justify-center text-white text-[10px] font-bold">
-                {unreadMessagesCount}
-              </div> 
+              </div>
             )}
           </div>
         </div>
 
         {/* Right: Actions & Profile */}
-        <div className="flex items-center justify-end gap-3 w-1/4 pr-1">
-          <div className="relative ml-1" ref={menuRef}>
+        <div className="flex items-center justify-end gap-3 w-1/4 pr-1" ref={menuRef}>
+          
+          {/* Vùng chứa Nút Message và Dropdown */}
+          <div className="relative">
+            {/* Nút Message (Messenger) */}
+            <button 
+              onClick={() => {
+                setShowMessageMenu(!showMessageMenu);
+                setShowProfileMenu(false);
+              }}
+              className={`relative w-10 h-10 rounded-full flex items-center justify-center transition-colors focus:outline-none ${showMessageMenu ? 'bg-[#0866ff]/20 text-[#0866ff]' : 'bg-[#3a3b3c] hover:bg-[#4e4f50] text-[#e4e6eb]'}`}
+              title="Messages"
+            >
+              <svg className={`w-5 h-5 ${showMessageMenu ? 'text-[#0866ff]' : 'text-[#e4e6eb]'}`} fill="currentColor" viewBox="0 0 24 24"><path d="M12 3c5.523 0 10 4.22 10 9.428 0 2.827-1.328 5.37-3.418 7.078-.344.281-.555.704-.555 1.149V22a.998.998 0 01-1.488.871l-3.08-1.732a1.442 1.442 0 00-.733-.205c-.244 0-.486.023-.726.068A10.428 10.428 0 0112 21.856C6.477 21.856 2 17.636 2 12.428 2 7.22 6.477 3 12 3z"></path></svg>
+              {totalUnreadCount > 0 && (
+                <div className="absolute -top-1 -right-1 w-[18px] h-[18px] bg-[#e41e3f] rounded-full border border-[#242526] flex items-center justify-center text-white text-[10px] font-bold">
+                  {totalUnreadCount > 9 ? '9+' : totalUnreadCount}
+                </div> 
+              )}
+            </button>
+
+            {/* Hộp thoại Dropdown Messages */}
+            <MessagesDropdown isOpen={showMessageMenu} onClose={() => setShowMessageMenu(false)} />
+          </div>
+
+          <div className="relative ml-1">
             {/* Nút Avatar */}
             <button
-              onClick={() => setShowProfileMenu(!showProfileMenu)}
+              onClick={() => {
+                setShowProfileMenu(!showProfileMenu);
+                setShowMessageMenu(false);
+              }}
               className="relative cursor-pointer group focus:outline-none"
               title="Account"
             >
@@ -123,21 +149,37 @@ const TopNavbar: React.FC = () => {
                 </div>
 
                 <div className="px-2 text-left">
-                  {/* Dòng 2: Cài đặt */}
-                  <div className="flex items-center gap-3 p-2 hover:bg-[#3a3b3c] cursor-pointer rounded-lg transition-colors">
-                    <div className="w-9 h-9 rounded-full bg-[#3a3b3c] flex items-center justify-center">
-                      <svg className="w-5 h-5 text-[#e4e6eb]" fill="currentColor" viewBox="0 0 24 24"><path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd"></path></svg>
+                  {/* Dòng 2: Chế độ Ẩn danh (Ghost Mode) */}
+                  <div
+                    onClick={() => {
+                      toggleSharing();
+                      // Không đóng menu để user có thể bấm nhiều lần nếu thích
+                    }}
+                    className="flex items-center gap-3 p-2 hover:bg-[#3a3b3c] cursor-pointer rounded-lg transition-colors"
+                  >
+                    <div className={`w-9 h-9 rounded-full flex items-center justify-center transition-colors ${isSharingLocation ? 'bg-blue-600' : 'bg-gray-600'}`}>
+                      {isSharingLocation ? (
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
+                      ) : (
+                        <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"></path></svg>
+                      )}
                     </div>
-                    <span className="text-[#e4e6eb] font-medium text-[15px]">Settings & privacy</span>
-                    <svg className="w-5 h-5 text-[#b0b3b8] ml-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                    <div className="flex flex-col">
+                      <span className="text-[#e4e6eb] font-medium text-[15px]">Ghost Mode</span>
+                      <span className="text-[#b0b3b8] text-[12px]">{isSharingLocation ? 'Đang chia sẻ vị trí' : 'Đang ẩn danh'}</span>
+                    </div>
+                    {/* Toggle Switch UI */}
+                    <div className={`ml-auto relative w-11 h-6 rounded-full transition-colors ${isSharingLocation ? 'bg-blue-600' : 'bg-[#3a3b3c]'}`}>
+                      <div className={`absolute top-[2px] left-[2px] w-5 h-5 bg-white rounded-full transition-transform ${isSharingLocation ? 'translate-x-5' : ''}`}></div>
+                    </div>
                   </div>
 
                   {/* Dòng 2.5: Blocked Users */}
-                  <div 
+                  <div
                     onClick={() => {
                       setShowProfileMenu(false);
                       setIsBlockedModalOpen(true);
-                    }} 
+                    }}
                     className="flex items-center gap-3 p-2 hover:bg-[#3a3b3c] cursor-pointer rounded-lg transition-colors mt-1"
                   >
                     <div className="w-9 h-9 rounded-full bg-[#3a3b3c] flex items-center justify-center">

@@ -54,5 +54,9 @@ public class AppDbContext : IdentityDbContext<User>
             .WithMany()
             .HasForeignKey(m => m.ReceiverId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Đánh Index cho bảng Messages để tăng tốc lấy lịch sử chat
+        builder.Entity<Message>()
+            .HasIndex(m => new { m.SenderId, m.ReceiverId, m.SentAt });
     }
 }

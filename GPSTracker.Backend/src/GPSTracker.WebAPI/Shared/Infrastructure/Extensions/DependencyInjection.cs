@@ -184,14 +184,15 @@ public static class DependencyInjection
         return services;
     }
 
-    public static IServiceCollection AddApplicationServices(this IServiceCollection services)
+    public static IServiceCollection AddApplicationServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddScoped<GPSTracker.WebAPI.Modules.Friendships.Application.Interfaces.IFriendshipService, GPSTracker.WebAPI.Modules.Friendships.Application.Services.FriendshipService>();
         services.AddScoped<IRedisTrackingService, RedisTrackingService>();
         services.AddScoped<IMessageService, MessageService>();
         
-        // Đăng ký SignalR
-        services.AddSignalR();
+        // Đăng ký SignalR kèm Redis Backplane để Scale Out
+        var redisConfig = configuration.GetConnectionString("RedisConnection");
+        services.AddSignalR().AddStackExchangeRedis(redisConfig ?? "");
         
         return services;
     }

@@ -12,7 +12,7 @@ builder.Services.AddJwtAuthentication(builder.Configuration);
 builder.Services.AddRateLimitingConfiguration();
 builder.Services.AddExceptionHandlingConfiguration(); // Lưới lọc lỗi tập trung
 builder.Services.AddCorsConfiguration();
-builder.Services.AddApplicationServices(); // Đăng ký các Business Services (Friendships, v.v...)
+builder.Services.AddApplicationServices(builder.Configuration); // Đăng ký các Business Services (Friendships, v.v...)
 
 builder.Services.AddControllers();
 

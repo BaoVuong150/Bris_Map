@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import TopNavbar from '../components/layout/TopNavbar';
@@ -15,6 +15,30 @@ L.Icon.Default.mergeOptions({
   iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
   shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
 });
+
+// Component con để điều khiển camera của Bản đồ
+const RecenterButton: React.FC<{ position: [number, number] | null }> = ({ position }) => {
+  const map = useMap();
+  
+  const handleRecenter = () => {
+    if (position) {
+      // Dịch chuyển camera mượt mà (flyTo) về tọa độ hiện tại với mức zoom 16
+      map.flyTo(position, 16, { animate: true, duration: 1.5 });
+    }
+  };
+
+  return (
+    <button 
+      onClick={handleRecenter}
+      className="absolute bottom-24 right-8 z-[1000] p-3 rounded-full shadow-lg bg-white hover:bg-gray-100 text-slate-700 transition-all"
+      title="Quay về vị trí của tôi"
+    >
+      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v4m0 8v4m-8-8h4m8 0h4m-4 0a4 4 0 11-8 0 4 4 0 018 0z"></path>
+      </svg>
+    </button>
+  );
+};
 
 const MapDashboard: React.FC = () => {
   const user = useAuthStore(state => state.user);
@@ -91,6 +115,9 @@ const MapDashboard: React.FC = () => {
               url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager_nolabels/{z}/{x}/{y}{r}.png"
             />
             
+            {/* Nút bấm Tâm ngắm để quay về vị trí hiện tại */}
+            <RecenterButton position={currentPosition} />
+            
             {/* Marker của chính bản thân người dùng */}
             {currentPosition && (
               <Marker 
@@ -126,19 +153,6 @@ const MapDashboard: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Nút Ghost Mode (Tắt/Bật chia sẻ vị trí) */}
-      <button 
-        onClick={toggleSharing}
-        className={`absolute bottom-8 right-8 z-[1000] p-4 rounded-full shadow-2xl transition-all duration-300 ${isSharingLocation ? 'bg-blue-600 hover:bg-blue-700' : 'bg-gray-600 hover:bg-gray-700'}`}
-        title={isSharingLocation ? "Bạn đang chia sẻ vị trí" : "Chế độ ẩn danh (Ghost Mode)"}
-      >
-        {isSharingLocation ? (
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path></svg>
-        ) : (
-          <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l18 18"></path></svg>
-        )}
-      </button>
 
       {/* Cửa sổ Chat */}
       <ChatWindow hubConnection={hubConnection} />

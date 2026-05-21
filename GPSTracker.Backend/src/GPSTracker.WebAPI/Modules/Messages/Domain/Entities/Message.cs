@@ -20,4 +20,6 @@ public class Message
     public string Content { get; set; } = null!;
 
     public DateTime SentAt { get; set; } = DateTime.UtcNow;
+
+    public bool IsRead { get; set; } = false;
 }

@@ -6,6 +6,7 @@ export interface ChatMessage {
   receiverId: string;
   content: string;
   sentAt: string;
+  isRead?: boolean;
 }
 
 interface ChatState {

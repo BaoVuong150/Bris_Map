@@ -3,6 +3,7 @@ import { useChatStore } from '../../stores/useChatStore';
 import { useAuthStore } from '../../stores/useAuthStore';
 import axiosClient from '../../api/axiosClient';
 import * as signalR from '@microsoft/signalr';
+import { useMessageStore } from '../../stores/useMessageStore';
 
 interface ChatWindowProps {
   hubConnection: signalR.HubConnection | null;
@@ -14,6 +15,8 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ hubConnection }) => {
   
   const [inputValue, setInputValue] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  const fetchTotalUnreadCount = useMessageStore(state => state.fetchTotalUnreadCount);
 
   // Auto-scroll to bottom when messages change
   const scrollToBottom = () => {
@@ -23,6 +26,28 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ hubConnection }) => {
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
+
+  const handleMarkAsRead = async () => {
+    if (!hubConnection || !activeChatUserId) return;
+    
+    // Kiểm tra xem trong list message hiện tại có tin nào chưa đọc từ người này không
+    const hasUnread = messages.some(m => !m.isRead && m.senderId === activeChatUserId);
+    if (!hasUnread) return;
+
+    try {
+      await hubConnection.invoke("MarkMessagesAsRead", activeChatUserId);
+      // Mark local messages as read so we don't spam the server
+      const updatedMessages = messages.map(m => {
+        if (m.senderId === activeChatUserId) return { ...m, isRead: true };
+        return m;
+      });
+      setMessages(updatedMessages);
+      // Cập nhật lại số đỏ trên Navbar
+      fetchTotalUnreadCount();
+    } catch (error) {
+      console.error("Failed to mark messages as read", error);
+    }
+  };
 
   // Load chat history when opening chat
   useEffect(() => {
@@ -107,7 +132,11 @@ const ChatWindow: React.FC<ChatWindowProps> = ({ hubConnection }) => {
       <div className="p-3 bg-[#242526] border-t border-[#393a3b] flex gap-2 items-end">
         <textarea
           value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
+          onFocus={handleMarkAsRead}
+          onChange={(e) => {
+            setInputValue(e.target.value);
+            handleMarkAsRead();
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Nhắn tin..."
           className="flex-1 bg-[#3a3b3c] text-[#e4e6eb] rounded-2xl px-3 py-2 text-[14px] outline-none resize-none max-h-[80px] min-h-[40px] placeholder-[#b0b3b8]"

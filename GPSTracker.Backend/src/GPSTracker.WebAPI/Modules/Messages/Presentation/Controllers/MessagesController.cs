@@ -20,4 +20,24 @@ public class MessagesController(IMessageService messageService) : ControllerBase
 
         return Ok(messages);
     }
+
+    [HttpGet("unread-count")]
+    public async Task<IActionResult> GetUnreadCount()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null) return Unauthorized();
+
+        var count = await messageService.GetTotalUnreadCountAsync(userId);
+        return Ok(new { TotalUnreadCount = count });
+    }
+
+    [HttpGet("conversations")]
+    public async Task<IActionResult> GetRecentConversations()
+    {
+        var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (userId == null) return Unauthorized();
+
+        var conversations = await messageService.GetRecentConversationsAsync(userId);
+        return Ok(conversations);
+    }
 }

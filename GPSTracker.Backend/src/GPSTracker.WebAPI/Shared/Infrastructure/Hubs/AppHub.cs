@@ -17,7 +17,8 @@ public partial class AppHub(
     IRedisTrackingService redisTrackingService,
     IFriendshipService friendshipService,
     GPSTracker.WebAPI.Modules.Messages.Application.Interfaces.IMessageService messageService,
-    IServiceScopeFactory scopeFactory) : Hub
+    IServiceScopeFactory scopeFactory,
+    ILogger<AppHub> logger) : Hub
 {
     // ==========================================
     // 1. QUẢN LÝ VÒNG ĐỜI KẾT NỐI (LIFECYCLE)
@@ -27,7 +28,7 @@ public partial class AppHub(
         var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId != null)
         {
-            Console.WriteLine($"[SignalR] User connected: {userId} (ConnectionId: {Context.ConnectionId})");
+            logger.LogInformation("[SignalR] User connected: {UserId} (ConnectionId: {ConnectionId})", userId, Context.ConnectionId);
             await redisTrackingService.AddConnectionAsync(userId, Context.ConnectionId);
         }
         
@@ -39,7 +40,7 @@ public partial class AppHub(
         var userId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (userId != null)
         {
-            Console.WriteLine($"[SignalR] User disconnected: {userId} (ConnectionId: {Context.ConnectionId})");
+            logger.LogInformation("[SignalR] User disconnected: {UserId} (ConnectionId: {ConnectionId})", userId, Context.ConnectionId);
             await redisTrackingService.RemoveConnectionAsync(userId, Context.ConnectionId);
 
             // Xử lý Edge Case: Người dùng bấm F5 (Refresh trình duyệt)
@@ -78,7 +79,7 @@ public partial class AppHub(
                         }
                         catch (Exception ex)
                         {
-                            Console.WriteLine($"[AppHub] Lỗi parse JSON khi Disconnect: {ex.Message}");
+                            logger.LogError(ex, "[AppHub] Lỗi parse JSON khi Disconnect cho user {UserId}", userId);
                         }
                     }
 
@@ -89,11 +90,11 @@ public partial class AppHub(
                     }
 
                     await dbContext.SaveChangesAsync();
-                    Console.WriteLine($"[AppHub] Đã lưu LocationHistory và LastSeenAt cho {userId} sau 5s delay");
+                    logger.LogInformation("[AppHub] Đã lưu LocationHistory và LastSeenAt cho {UserId} sau 5s delay", userId);
                 }
                 else
                 {
-                    Console.WriteLine($"[AppHub] Hủy lưu DB cho {userId} vì đã kết nối lại trong 5s (F5 Edge Case)");
+                    logger.LogInformation("[AppHub] Hủy lưu DB cho {UserId} vì đã kết nối lại trong 5s (F5 Edge Case)", userId);
                 }
             });
         }
@@ -121,24 +122,30 @@ public partial class AppHub(
         bool isGhostMode = await redisTrackingService.GetGhostModeAsync(userId);
         if (isGhostMode)
         {
-            Console.WriteLine($"[AppHub] Chặn tọa độ từ {userId} (Lý do: Đang bật Ghost Mode)");
+            logger.LogInformation("[AppHub] Chặn tọa độ từ {UserId} (Lý do: Đang bật Ghost Mode)", userId);
             return;
         }
 
-        Console.WriteLine($"[AppHub] Tọa độ từ {userId}: Lat={latitude}, Lng={longitude}, Tốc độ={speed}km/h");
+        logger.LogDebug("[AppHub] Tọa độ từ {UserId}: Lat={Lat}, Lng={Lng}, Tốc độ={Speed}km/h", userId, latitude, longitude, speed);
 
         // Lưu tọa độ vào Redis
         await redisTrackingService.UpdateLocationAsync(userId, latitude, longitude, speed, heading);
 
-        // PHÂN QUYỀN BẠN BÈ: Chỉ Broadcast cho những ai là Bạn bè (Accepted)
-        var friends = await friendshipService.GetFriendsAsync(userId);
-        var friendIds = friends.Select(f => f.UserId).ToList();
+        // PHÂN QUYỀN BẠN BÈ: Lấy danh sách bạn bè từ Redis thay vì DB
+        var friendIds = await redisTrackingService.GetCachedFriendIdsAsync(userId);
 
         if (friendIds.Any())
         {
+            // Lấy DbContext từ Scope để truy vấn DisplayName
+            using var scope = scopeFactory.CreateScope();
+            var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+            var user = await dbContext.Users.FindAsync(userId);
+            var displayName = user?.DisplayName ?? "Friend";
+
             var updateDto = new LocationUpdateDto
             {
                 UserId = userId,
+                DisplayName = displayName,
                 Lat = latitude,
                 Lng = longitude,
                 Speed = speed,
@@ -158,18 +165,47 @@ public partial class AppHub(
         bool canToggle = await redisTrackingService.CheckRateLimitAsync(userId, "GhostToggle", 2);
         if (!canToggle)
         {
-            Console.WriteLine($"[AppHub] Chặn {userId} đổi Ghost Mode liên tục (Spam)");
+            logger.LogWarning("[AppHub] Chặn {UserId} đổi Ghost Mode liên tục (Spam)", userId);
             return;
         }
 
-        Console.WriteLine($"[AppHub] User {userId} bật/tắt Ghost Mode: {isGhostMode}");
+        logger.LogInformation("[AppHub] User {UserId} bật/tắt Ghost Mode: {IsGhostMode}", userId, isGhostMode);
 
         // LƯU TRẠNG THÁI (Late Joiner Edge Case): Cần lưu lại để người vào sau còn biết
         await redisTrackingService.SetGhostModeAsync(userId, isGhostMode);
 
-        // PHÂN QUYỀN BẠN BÈ: Chỉ Broadcast cho những ai là Bạn bè (Accepted)
-        var friends = await friendshipService.GetFriendsAsync(userId);
-        var friendIds = friends.Select(f => f.UserId).ToList();
+        // EDGE CASE: Nếu sếp bật Ghost Mode, ta nên chốt sổ luôn vị trí đó xuống DB.
+        // Phòng trường hợp Server sập (Crash) làm hàm OnDisconnected không kịp chạy dẫn đến mất dấu vết.
+        if (isGhostMode)
+        {
+            var lastLocationJson = await redisTrackingService.GetLastLocationAsync(userId);
+            if (!string.IsNullOrEmpty(lastLocationJson))
+            {
+                try
+                {
+                    var data = JsonSerializer.Deserialize<JsonElement>(lastLocationJson);
+                    using var scope = scopeFactory.CreateScope();
+                    var dbContext = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    
+                    var history = new LocationHistory
+                    {
+                        UserId = userId,
+                        Location = new Point(data.GetProperty("Lng").GetDouble(), data.GetProperty("Lat").GetDouble()) { SRID = 4326 },
+                        Timestamp = DateTime.UtcNow
+                    };
+                    dbContext.LocationHistories.Add(history);
+                    await dbContext.SaveChangesAsync();
+                    logger.LogInformation("[AppHub] Đã backup vị trí đóng băng của {UserId} xuống DB an toàn", userId);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "[AppHub] Lỗi khi backup vị trí Ghost Mode xuống DB");
+                }
+            }
+        }
+
+        // PHÂN QUYỀN BẠN BÈ: Lấy danh sách bạn bè từ Redis thay vì DB
+        var friendIds = await redisTrackingService.GetCachedFriendIdsAsync(userId);
 
         if (friendIds.Any())
         {
@@ -191,11 +227,11 @@ public partial class AppHub(
         var senderId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
         if (senderId == null) return;
 
-        // Kiểm tra xem 2 người có phải là bạn không
-        var friends = await friendshipService.GetFriendsAsync(senderId);
-        if (!friends.Any(f => f.UserId == receiverId))
+        // Kiểm tra xem 2 người có phải là bạn không (Sử dụng Cache Redis cho nhanh)
+        var friendIds = await redisTrackingService.GetCachedFriendIdsAsync(senderId);
+        if (!friendIds.Contains(receiverId))
         {
-            Console.WriteLine($"[AppHub] Chặn gửi tin nhắn từ {senderId} tới {receiverId} vì chưa kết bạn");
+            logger.LogWarning("[AppHub] Chặn gửi tin nhắn từ {SenderId} tới {ReceiverId} vì chưa kết bạn", senderId, receiverId);
             return;
         }
 
@@ -205,7 +241,20 @@ public partial class AppHub(
         // Phát tin nhắn sang máy người nhận (Real-time)
         await Clients.User(receiverId).SendAsync("ReceiveMessage", message);
         
-        // (Tùy chọn) Gửi lại cho chính người gửi để update UI (hoặc UI tự fake message)
-        // await Clients.Caller.SendAsync("ReceiveMessage", message);
+        // Cập nhật số đếm tin nhắn chưa đọc cho người nhận
+        var unreadCount = await messageService.GetTotalUnreadCountAsync(receiverId);
+        await Clients.User(receiverId).SendAsync("UpdateUnreadCount", unreadCount);
+    }
+
+    public async Task MarkMessagesAsRead(string senderId)
+    {
+        var receiverId = Context.User?.FindFirstValue(ClaimTypes.NameIdentifier);
+        if (receiverId == null) return;
+
+        await messageService.MarkMessagesAsReadAsync(receiverId, senderId);
+        
+        // Báo cho tất cả các tab/thiết bị của user này biết để tắt thông báo đỏ
+        var unreadCount = await messageService.GetTotalUnreadCountAsync(receiverId);
+        await Clients.User(receiverId).SendAsync("UpdateUnreadCount", unreadCount);
     }
 }
