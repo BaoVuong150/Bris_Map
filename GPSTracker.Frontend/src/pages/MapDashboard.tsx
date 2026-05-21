@@ -46,10 +46,9 @@ const MapDashboard: React.FC = () => {
   // Kéo dữ liệu từ Đám mây Location
   const locations = useLocationStore(state => state.locations);
   const isSharingLocation = useLocationStore(state => state.isSharingLocation);
-  const toggleSharing = useLocationStore(state => state.toggleSharing);
   
   // Khởi động SignalR và Tracking
-  const { connectionStatus, currentPosition, hubConnection } = useSignalRTracking();
+  const { currentPosition, hubConnection } = useSignalRTracking();
   
   const [position, setPosition] = useState<[number, number] | null>(null);
 

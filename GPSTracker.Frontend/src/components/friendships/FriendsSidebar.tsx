@@ -13,7 +13,6 @@ interface FriendsSidebarProps {
 
 const FriendsSidebar: React.FC<FriendsSidebarProps> = ({ isOpen, onClose }) => {
   const [activeTab, setActiveTab] = useState<'friends' | 'requests' | 'search'>('friends');
-  const openChat = useChatStore(state => state.openChat);
   const setPendingRequestsCount = useFriendshipStore(state => state.setPendingRequestsCount);
   const lastUpdateTimestamp = useFriendshipStore(state => state.lastUpdateTimestamp);
   

@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuthStore } from '../../stores/useAuthStore';
 import { useLocationStore } from '../../stores/useLocationStore';
-import { useChatStore } from '../../stores/useChatStore';
 import { useFriendshipStore } from '../../stores/useFriendshipStore';
 import FriendsSidebar from '../friendships/FriendsSidebar';
 import BlockedUsersModal from '../friendships/BlockedUsersModal';
