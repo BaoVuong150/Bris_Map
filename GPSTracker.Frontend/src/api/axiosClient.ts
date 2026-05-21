@@ -2,7 +2,7 @@ import axios from 'axios';
 
 // Khởi tạo instance Axios dùng chung cho toàn dự án
 const axiosClient = axios.create({
-  baseURL: 'http://localhost:5000/api', // Backend URL
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:5000/api', // Backend URL từ Env
   headers: {
     'Content-Type': 'application/json',
   },

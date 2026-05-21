@@ -33,7 +33,7 @@ export const useSignalRTracking = () => {
     // Nếu người dùng tắt chia sẻ, không cần duy trì kết nối SignalR (hoặc có thể duy trì để nhận vị trí bạn bè, tùy thiết kế)
     // Ở đây ta giữ kết nối để XEM vị trí bạn bè, nhưng chỉ GỬI vị trí của mình khi isSharingLocation = true.
     const connection = new signalR.HubConnectionBuilder()
-      .withUrl('http://localhost:5000/hubs/bris', {
+      .withUrl(import.meta.env.VITE_HUB_URL || 'http://localhost:5000/hubs/bris', {
         accessTokenFactory: () => token,
       })
       .withAutomaticReconnect([0, 2000, 5000, 10000, 30000]) // Tự động kết nối lại nếu rớt mạng
