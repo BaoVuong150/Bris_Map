@@ -93,8 +93,8 @@ public class AuthController(IAuthService authService) : ControllerBase
         Response.Cookies.Append("refreshToken", token, new CookieOptions
         {
             HttpOnly = true,
-            Secure = Request.IsHttps, // Yêu cầu HTTPS ở Production
-            SameSite = SameSiteMode.Strict,
+            Secure = true, // Bắt buộc bằng True khi dùng SameSiteMode.None
+            SameSite = SameSiteMode.None, // Bắt buộc để Frontend khác Domain (Vercel) gửi được Cookie
             Expires = DateTime.UtcNow.AddDays(7),
             Path = "/api/auth/refresh-token"
         });
@@ -102,6 +102,10 @@ public class AuthController(IAuthService authService) : ControllerBase
 
     private void DeleteRefreshTokenCookie()
     {
-        Response.Cookies.Delete("refreshToken", new CookieOptions { Path = "/api/auth/refresh-token" });
+        Response.Cookies.Delete("refreshToken", new CookieOptions { 
+            Path = "/api/auth/refresh-token",
+            Secure = true,
+            SameSite = SameSiteMode.None
+        });
     }
 }
