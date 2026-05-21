@@ -174,7 +174,7 @@ public static class DependencyInjection
         {
             options.AddPolicy("AllowFrontend", policy =>
             {
-                policy.WithOrigins("http://localhost:5173") // Cho phép Frontend kết nối
+                policy.SetIsOriginAllowed(origin => true) // Cho phép MỌI Frontend kết nối (kể cả Vercel Preview)
                       .AllowAnyHeader()
                       .AllowAnyMethod()
                       .AllowCredentials(); // BẮT BUỘC: Cho phép gửi kèm HttpOnly Cookie
