@@ -1,8 +1,17 @@
 using GPSTracker.WebAPI.Shared.Infrastructure.Data;
 using GPSTracker.WebAPI.Shared.Infrastructure.Extensions;
 using GPSTracker.WebAPI.Shared.Infrastructure.Hubs;
+using Microsoft.AspNetCore.HttpOverrides;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// Cấu hình giải mã IP thật của Client khi chạy sau Load Balancer của Render
+builder.Services.Configure<ForwardedHeadersOptions>(options =>
+{
+    options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
+    options.KnownNetworks.Clear();
+    options.KnownProxies.Clear();
+});
 
 // 1. Cấu hình các dịch vụ qua Extension Methods (Giúp Program.cs sạch sẽ)
 builder.Services.AddDatabaseConfiguration(builder.Configuration);
@@ -17,6 +26,8 @@ builder.Services.AddApplicationServices(builder.Configuration); // Đăng ký c�
 builder.Services.AddControllers();
 
 var app = builder.Build();
+
+app.UseForwardedHeaders(); // BẮT BUỘC ĐẶT ĐẦU TIÊN để đọc IP thật
 
 // 4. Tự động chạy Migration và Seed data giả lập
 try
