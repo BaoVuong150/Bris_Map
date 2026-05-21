@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { friendshipApi } from '../../api/friendshipApi';
 import type { FriendshipDto, UserDto } from '../../api/friendshipApi';
-import { useChatStore } from '../../stores/useChatStore';
 import { useFriendshipStore } from '../../stores/useFriendshipStore';
 import FriendListTab from './tabs/FriendListTab';
 import FriendRequestsTab from './tabs/FriendRequestsTab';
